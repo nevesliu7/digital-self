@@ -6,6 +6,8 @@ Live project: https://digital-self-five.vercel.app/
 
 Project Introduction Poster: https://drive.google.com/file/d/1kwq6Zcl_JCfnrYd9EgV09oxNP2B3unk4/view?usp=sharing
 
+A 3D-Printed Physical Version of Me: https://docs.google.com/document/d/1sTUytx2PbHkfGhUybhELsMAhNdOmPGMlrgny1Of5uG4/edit?usp=sharing
+
 ## Project Overview
 
 **My Digital Self Did the Walking** is a hybrid final project that combines a physical 3D-printed model with an interactive web experience.
