@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { toPng } from "html-to-image";
 import {
   CalendarDays,
   ChevronRight,
+  Download,
   Eye,
   Footprints,
   Gamepad2,
   Mail,
+  Maximize2,
   MessageCircle,
   Monitor,
   Pause,
@@ -26,6 +29,7 @@ const days = [
     steps: 3801,
     screen: 6.2,
     events: 3,
+    notifications: 32,
     pressure: 38,
     title: "The body still remembers movement",
     note: "The phone is already busy, but the body has not fully disappeared yet.",
@@ -37,6 +41,7 @@ const days = [
     steps: 877,
     screen: 6.4,
     events: 5,
+    notifications: 48,
     pressure: 62,
     title: "A clean calendar makes the body smaller",
     note: "The schedule looks controlled. The physical self begins to sink under digital order.",
@@ -48,6 +53,7 @@ const days = [
     steps: 4718,
     screen: 5.7,
     events: 4,
+    notifications: 26,
     pressure: 31,
     title: "The body briefly returns",
     note: "Movement comes back for a moment. The digital field becomes quieter, but never turns off.",
@@ -59,6 +65,7 @@ const days = [
     steps: 479,
     screen: 7.1,
     events: 6,
+    notifications: 67,
     pressure: 75,
     title: "The chair starts growing roots",
     note: "The digital self is active. The physical self feels glued to the desk.",
@@ -70,6 +77,7 @@ const days = [
     steps: 234,
     screen: 7.6,
     events: 7,
+    notifications: 83,
     pressure: 86,
     title: "Attention keeps leaving the room",
     note: "The body is almost still. Attention keeps moving outward through glowing windows.",
@@ -81,6 +89,7 @@ const days = [
     steps: 220,
     screen: 8.4,
     events: 9,
+    notifications: 99,
     pressure: 98,
     title: "My digital self did the walking",
     note: "A full day on paper: interviews, calls, deadlines, applications. The step count was 220.",
@@ -88,8 +97,89 @@ const days = [
   },
 ];
 
+const initialVisitorInput = {
+  steps: 900,
+  screen: 7.2,
+  events: 6,
+  notifications: 72,
+};
+
+const visitorAppOrder = ["outlook", "messages", "calendar", "slack", "instagram", "discord"];
+
+function derivePressureFromData({ steps, screen, events, notifications }) {
+  const stillnessPressure = clamp(1 - steps / 5000, 0, 1);
+  const screenPressure = mapRange(screen, 4, 10, 0, 1);
+  const calendarPressure = mapRange(events, 0, 10, 0, 1);
+  const notificationPressure = mapRange(notifications, 0, 120, 0, 1);
+
+  return Math.round(
+    clamp(
+      stillnessPressure * 0.35 +
+        screenPressure * 0.25 +
+        calendarPressure * 0.2 +
+        notificationPressure * 0.2,
+      0,
+      1,
+    ) * 100,
+  );
+}
+
+function buildVisitorDay(input) {
+  const steps = Math.round(clamp(Number(input.steps) || 0, 0, 12000));
+  const screen = Number(clamp(Number(input.screen) || 0, 0, 14).toFixed(1));
+  const events = Math.round(clamp(Number(input.events) || 0, 0, 14));
+  const notifications = Math.round(clamp(Number(input.notifications) || 0, 0, 180));
+  const pressure = derivePressureFromData({ steps, screen, events, notifications });
+  const appCount = Math.round(mapRange(notifications + pressure, 0, 280, 2, 6));
+
+  return {
+    id: "visitor",
+    label: "YOU",
+    steps,
+    screen,
+    events,
+    notifications,
+    pressure,
+    title:
+      pressure >= 80
+        ? "Your digital self is sprinting"
+        : pressure >= 52
+          ? "Your body and apps are pulling apart"
+          : "Your body still has room to return",
+    note:
+      pressure >= 80
+        ? `A day with ${notifications} alerts and ${screen}h of screen time starts to feel louder than the room around you.`
+        : pressure >= 52
+          ? `The screen is active, but there is still space to notice the body before it disappears into the interface.`
+          : `Your data leaves more space around the body. The screen is present, but it does not take the whole room.`,
+    apps: visitorAppOrder.slice(0, appCount),
+  };
+}
+
 const gameApps = ["outlook", "instagram", "slack", "discord", "calendar", "messages"];
 const ROUND_DURATION = 6200;
+
+function createGameRoundState(nextRound = 1) {
+  const chosen = randomFrom(gameApps);
+  const positions = [
+    { left: "11%", top: "18%" },
+    { left: "40%", top: "18%" },
+    { left: "69%", top: "18%" },
+    { left: "20%", top: "55%" },
+    { left: "49%", top: "55%" },
+    { left: "78%", top: "55%" },
+  ];
+  const types = shuffle(gameApps).slice(0, 6);
+  if (!types.includes(chosen)) types[0] = chosen;
+
+  return {
+    target: chosen,
+    tiles: types.map((type, i) => ({ id: `${type}-${i}-${Date.now()}-${Math.random()}`, type, ...positions[i] })),
+    round: nextRound,
+    phase: "playing",
+    roundKey: Date.now(),
+  };
+}
 
 const avatarPresets = {
   outfit: [
@@ -320,7 +410,7 @@ function CleanCutImage({ src, alt, className = "", style, draggable = false }) {
         ctx.putImageData(imageData, 0, 0);
         const url = canvas.toDataURL("image/png");
         if (!cancelled) setCleanSrc(url);
-      } catch (error) {
+      } catch {
         if (!cancelled) setCleanSrc(src);
       }
     };
@@ -685,7 +775,7 @@ function SignalPaths({ pressure }) {
   );
 }
 
-function MonitorDesk({ active, onOpenGame, onOpenXray }) {
+function MonitorDesk({ active, onOpenGame, onOpenXray, showButtons = true }) {
   const blocks = Array.from({ length: active.events + 5 });
   return (
     <div className="absolute right-[8%] top-[34%] z-[12] h-[320px] w-[58%]">
@@ -715,10 +805,18 @@ function MonitorDesk({ active, onOpenGame, onOpenXray }) {
               />
             ))}
           </div>
-          <div className="absolute bottom-5 left-4 right-4 flex items-center justify-between gap-3">
-            <button type="button" onClick={onOpenGame} className="rounded-full border border-white/10 bg-white/8 px-3 py-2 text-xs font-bold uppercase tracking-[0.22em] text-cyan-200">Enter Game</button>
-            <button type="button" onClick={onOpenXray} className="rounded-full border border-white/10 bg-white/8 px-3 py-2 text-xs font-bold uppercase tracking-[0.22em] text-fuchsia-200">Open X-Ray</button>
-          </div>
+          {showButtons ? (
+            <div className="absolute bottom-5 left-4 right-4 flex items-center justify-between gap-3">
+              <button type="button" onClick={onOpenGame} className="rounded-full border border-white/10 bg-white/8 px-3 py-2 text-xs font-bold uppercase tracking-[0.22em] text-cyan-200">Enter Game</button>
+              <button type="button" onClick={onOpenXray} className="rounded-full border border-white/10 bg-white/8 px-3 py-2 text-xs font-bold uppercase tracking-[0.22em] text-fuchsia-200">Open X-Ray</button>
+            </div>
+          ) : (
+            <div className="absolute bottom-5 left-4 right-4 grid grid-cols-3 gap-2 text-center text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2">{active.screen}h<br /><span className="text-cyan-200">screen</span></div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2">{active.events}<br /><span className="text-fuchsia-200">events</span></div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2">{active.pressure}<br /><span className="text-orange-200">pressure</span></div>
+            </div>
+          )}
         </div>
         <div className="absolute -bottom-9 left-1/2 h-9 w-16 -translate-x-1/2 rounded-b-lg bg-slate-900 shadow-xl" />
       </motion.div>
@@ -726,7 +824,7 @@ function MonitorDesk({ active, onOpenGame, onOpenXray }) {
   );
 }
 
-function FloatingApps({ apps }) {
+function FloatingApps({ apps, notifications }) {
   const positions = [
     { x: "78%", y: "28%" },
     { x: "89%", y: "38%" },
@@ -735,25 +833,30 @@ function FloatingApps({ apps }) {
     { x: "94%", y: "52%" },
     { x: "73%", y: "64%" },
   ];
+  const totalNotifications = notifications ?? apps.length * 12;
 
   return (
     <div className="absolute inset-0 z-[15]">
-      {apps.map((app, i) => (
-        <motion.div
-          key={`${app}-${i}`}
-          className="absolute h-16 w-16"
-          style={{ left: positions[i % positions.length].x, top: positions[i % positions.length].y }}
-          animate={{ y: [0, -4, 0] }}
-          transition={{ duration: 6 + i * 0.45, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <div className={`relative flex h-full w-full items-center justify-center rounded-[21px] bg-gradient-to-br ${appGradient(app)} shadow-[0_18px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/20`}>
-            <AppGlyph type={app} />
-            <div className="absolute -right-3 -top-3 flex h-8 min-w-8 items-center justify-center rounded-full bg-red-500 px-2 text-sm font-black text-white shadow-[0_8px_16px_rgba(255,0,0,0.28)] ring-2 ring-white">
-              {9 + i * 3}
+      {apps.map((app, i) => {
+        const badge = Math.max(3, Math.round((totalNotifications / apps.length) * (0.68 + i * 0.11)));
+
+        return (
+          <motion.div
+            key={`${app}-${i}`}
+            className="absolute h-16 w-16"
+            style={{ left: positions[i % positions.length].x, top: positions[i % positions.length].y }}
+            animate={{ y: [0, -4, 0] }}
+            transition={{ duration: 6 + i * 0.45, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <div className={`relative flex h-full w-full items-center justify-center rounded-[21px] bg-gradient-to-br ${appGradient(app)} shadow-[0_18px_34px_rgba(0,0,0,0.38)] ring-1 ring-white/20`}>
+              <AppGlyph type={app} />
+              <div className="absolute -right-3 -top-3 flex h-8 min-w-8 items-center justify-center rounded-full bg-red-500 px-2 text-sm font-black text-white shadow-[0_8px_16px_rgba(255,0,0,0.28)] ring-2 ring-white">
+                {badge >= 99 ? "99+" : badge}
+              </div>
             </div>
-          </div>
-        </motion.div>
-      ))}
+          </motion.div>
+        );
+      })}
     </div>
   );
 }
@@ -768,10 +871,10 @@ function MetricCard({ icon: Icon, label, value }) {
   );
 }
 
-function DaySelector({ activeIndex, setActiveIndex }) {
+function DaySelector({ dayList, activeIndex, setActiveIndex }) {
   return (
-    <div className="grid gap-2 md:grid-cols-6">
-      {days.map((d, i) => {
+    <div className="grid gap-2 md:grid-cols-7">
+      {dayList.map((d, i) => {
         const active = i === activeIndex;
         return (
           <button key={d.id} onClick={() => setActiveIndex(i)} className={`group relative overflow-hidden rounded-2xl border p-3 text-left transition ${active ? "border-cyan-300/70 bg-cyan-300/15 shadow-[0_0_30px_rgba(34,211,238,0.18)]" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"}`}>
@@ -830,13 +933,66 @@ function ToneAccessoryButtons({ title, options, current, onChange }) {
   );
 }
 
-function RightPanel({ mode, setMode, autoplay, setAutoplay, onOpenGame, onOpenXray, avatar, setAvatar }) {
+function DataControl({ icon: Icon, label, value, min, max, step = 1, suffix, onChange }) {
+  const displayValue = step < 1 ? Number(value).toFixed(1) : Math.round(value).toLocaleString();
+
+  function update(raw) {
+    const next = step < 1 ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
+    if (Number.isNaN(next)) return;
+    onChange(clamp(next, min, max));
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-white">
+          <Icon className="h-4 w-4 text-cyan-200" />
+          {label}
+        </div>
+        <div className="text-sm font-black text-cyan-100">
+          {displayValue} <span className="text-xs font-semibold text-slate-400">{suffix}</span>
+        </div>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => update(event.target.value)}
+        className="w-full accent-cyan-300"
+      />
+    </div>
+  );
+}
+
+function RightPanel({
+  mode,
+  setMode,
+  autoplay,
+  setAutoplay,
+  onOpenGame,
+  onOpenXray,
+  onOpenGallery,
+  onExportPortrait,
+  exporting,
+  avatar,
+  setAvatar,
+  visitorInput,
+  setVisitorInput,
+  visitorDay,
+  onApplyVisitor,
+}) {
   function update(part, value) {
     setAvatar((prev) => ({ ...prev, [part]: value }));
   }
 
+  function updateVisitor(part, value) {
+    setVisitorInput((prev) => ({ ...prev, [part]: value }));
+  }
+
   return (
-    <aside className="space-y-5">
+    <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
       <div className="rounded-[28px] border border-white/10 bg-white/[0.045] p-6 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-300/15 text-cyan-200 ring-1 ring-cyan-200/20"><Monitor size={22} /></div>
@@ -853,6 +1009,10 @@ function RightPanel({ mode, setMode, autoplay, setAutoplay, onOpenGame, onOpenXr
           </button>
           <button onClick={onOpenXray} className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08]"><Eye size={16} /> X-Ray</button>
         </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button onClick={onOpenGallery} className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08]"><Maximize2 size={16} /> Gallery</button>
+          <button onClick={onExportPortrait} disabled={exporting} className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-55"><Download size={16} /> {exporting ? "Exporting" : "Export PNG"}</button>
+        </div>
         <button onClick={onOpenGame} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-fuchsia-300/20 bg-fuchsia-300/10 px-3 py-3 text-sm font-semibold text-white transition hover:bg-fuchsia-300/18"><Gamepad2 size={16} /> Enter Monitor Game</button>
       </div>
 
@@ -863,6 +1023,30 @@ function RightPanel({ mode, setMode, autoplay, setAutoplay, onOpenGame, onOpenXr
           <ModeButton active={mode === "xray"} onClick={onOpenXray} icon={Eye} title="X-Ray" text="Clean scan, no overlap" />
           <ModeButton active={mode === "game"} onClick={onOpenGame} icon={Gamepad2} title="Game" text="Notification panic" />
         </div>
+      </div>
+
+      <div className="rounded-[28px] border border-white/10 bg-white/[0.045] p-6 backdrop-blur-xl">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-black uppercase tracking-[0.22em] text-slate-400">Visitor Data</div>
+            <div className="mt-1 text-sm text-slate-300">Turn your own day into the installation state.</div>
+          </div>
+          <div className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-300/10 px-3 py-2 text-center">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">pressure</div>
+            <div className="text-2xl font-black text-white">{visitorDay.pressure}</div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <DataControl icon={Footprints} label="Steps" value={visitorInput.steps} min={0} max={12000} step={100} suffix="steps" onChange={(value) => updateVisitor("steps", value)} />
+          <DataControl icon={Smartphone} label="Screen Time" value={visitorInput.screen} min={0} max={14} step={0.1} suffix="hours" onChange={(value) => updateVisitor("screen", value)} />
+          <DataControl icon={CalendarDays} label="Calendar" value={visitorInput.events} min={0} max={14} step={1} suffix="events" onChange={(value) => updateVisitor("events", value)} />
+          <DataControl icon={Mail} label="Notifications" value={visitorInput.notifications} min={0} max={180} step={1} suffix="alerts" onChange={(value) => updateVisitor("notifications", value)} />
+        </div>
+
+        <button onClick={onApplyVisitor} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-3 text-sm font-semibold text-white transition hover:bg-cyan-300/18">
+          <Zap size={16} /> Apply My Data
+        </button>
       </div>
 
       <div className="rounded-[28px] border border-white/10 bg-white/[0.045] p-6 backdrop-blur-xl">
@@ -946,6 +1130,7 @@ function XRayModal({ open, onClose, active, avatar }) {
             <ScanCard title="Screen Time" value={`${active.screen}h`} color="bg-cyan-400" pct={mapRange(active.screen, 5, 9, 30, 100)} />
             <ScanCard title="Calendar Load" value={active.events} color="bg-fuchsia-400" pct={mapRange(active.events, 2, 10, 20, 100)} />
             <ScanCard title="App Load" value={active.apps.length} color="bg-orange-300" pct={mapRange(active.apps.length, 2, 6, 20, 100)} />
+            <ScanCard title="Notifications" value={active.notifications ?? active.apps.length * 12} color="bg-red-400" pct={mapRange(active.notifications ?? active.apps.length * 12, 0, 120, 10, 100)} />
             <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 md:col-span-2">
               <div className="mb-3 text-xs uppercase tracking-[0.22em] text-slate-400">most active apps</div>
               <div className="flex flex-wrap gap-3">
@@ -999,54 +1184,44 @@ function GameStat({ label, value, danger = false }) {
 function NotificationGameModal({ open, onClose, onMissesChange, avatar }) {
   const [score, setScore] = useState(0);
   const [misses, setMisses] = useState(0);
-  const [target, setTarget] = useState("outlook");
-  const [tiles, setTiles] = useState([]);
-  const [round, setRound] = useState(1);
-  const [phase, setPhase] = useState("playing");
-  const [roundKey, setRoundKey] = useState(0);
+  const [roundState, setRoundState] = useState(() => createGameRoundState(1));
+  const { target, tiles, round, phase, roundKey } = roundState;
 
-  function createRound(nextRound = 1) {
-    const chosen = randomFrom(gameApps);
-    const positions = [
-      { left: "11%", top: "18%" },
-      { left: "40%", top: "18%" },
-      { left: "69%", top: "18%" },
-      { left: "20%", top: "55%" },
-      { left: "49%", top: "55%" },
-      { left: "78%", top: "55%" },
-    ];
-    let types = shuffle(gameApps).slice(0, 6);
-    if (!types.includes(chosen)) types[0] = chosen;
-    setTarget(chosen);
-    setTiles(types.map((t, i) => ({ id: `${t}-${i}-${Date.now()}`, type: t, ...positions[i] })));
-    setRound(nextRound);
-    setPhase("playing");
-    setRoundKey(Date.now());
-  }
+  const createRound = useCallback((nextRound = 1) => {
+    setRoundState(createGameRoundState(nextRound));
+  }, []);
 
-  function resetGame() {
+  const resetGame = useCallback(() => {
     setScore(0);
     setMisses(0);
-    onMissesChange(0);
     createRound(1);
-  }
+  }, [createRound]);
+
+  const registerMiss = useCallback(() => {
+    const next = misses + 1;
+    setMisses(next);
+    if (next >= 3) {
+      setRoundState((current) => ({ ...current, tiles: [], phase: "fall" }));
+    } else {
+      setTimeout(() => createRound(round + 1), 250);
+    }
+  }, [createRound, misses, round]);
 
   useEffect(() => {
-    if (!open) return;
-    resetGame();
-  }, [open]);
+    onMissesChange(misses);
+  }, [misses, onMissesChange]);
 
   useEffect(() => {
     if (!open || phase !== "playing") return;
     const timer = setTimeout(() => registerMiss(), ROUND_DURATION);
     return () => clearTimeout(timer);
-  }, [open, phase, roundKey]);
+  }, [open, phase, registerMiss, roundKey]);
 
   useEffect(() => {
     if (phase !== "fall") return;
-    const t1 = setTimeout(() => setPhase("rescue"), 650);
-    const t2 = setTimeout(() => setPhase("carry"), 2100);
-    const t3 = setTimeout(() => setPhase("done"), 3600);
+    const t1 = setTimeout(() => setRoundState((current) => ({ ...current, phase: "rescue" })), 650);
+    const t2 = setTimeout(() => setRoundState((current) => ({ ...current, phase: "carry" })), 2100);
+    const t3 = setTimeout(() => setRoundState((current) => ({ ...current, phase: "done" })), 3600);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -1054,25 +1229,11 @@ function NotificationGameModal({ open, onClose, onMissesChange, avatar }) {
     };
   }, [phase]);
 
-  function registerMiss() {
-    setMisses((prev) => {
-      const next = prev + 1;
-      onMissesChange(next);
-      if (next >= 3) {
-        setTiles([]);
-        setPhase("fall");
-      } else {
-        setTimeout(() => createRound(round + 1), 250);
-      }
-      return next;
-    });
-  }
-
   function handleTileClick(type) {
     if (phase !== "playing") return;
     if (type === target) {
       setScore((prev) => prev + 1);
-      setTiles([]);
+      setRoundState((current) => ({ ...current, tiles: [] }));
       setTimeout(() => createRound(round + 1), 320);
     } else {
       registerMiss();
@@ -1162,13 +1323,74 @@ function NotificationGameModal({ open, onClose, onMissesChange, avatar }) {
   );
 }
 
+function GalleryModeOverlay({ open, onClose, active, avatar, visualIntensity }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-[#03040a] text-slate-100">
+      <div className="relative h-screen overflow-hidden bg-[radial-gradient(circle_at_16%_8%,rgba(34,211,238,0.2),transparent_30%),radial-gradient(circle_at_80%_30%,rgba(236,72,153,0.18),transparent_35%),linear-gradient(180deg,#070914,#111827_58%,#03040a)]">
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:48px_48px] opacity-35" />
+        <DustField intensity={visualIntensity} />
+        <Cobwebs intensity={visualIntensity} />
+        <SignalPaths pressure={active.pressure} />
+        <OrganicGrowthBack intensity={visualIntensity} />
+
+        <button onClick={onClose} className="absolute right-8 top-8 z-50 rounded-full border border-white/10 bg-white/10 p-3 text-white backdrop-blur transition hover:bg-white/15">
+          <X size={22} />
+        </button>
+
+        <div className="absolute left-8 top-8 z-40 max-w-[780px] md:left-12 md:top-12">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-cyan-100 backdrop-blur">
+            Gallery Mode
+          </div>
+          <h2 className="text-5xl font-black leading-[0.9] text-white md:text-7xl">
+            {active.title}
+          </h2>
+          <p className="mt-5 max-w-[680px] text-lg leading-8 text-slate-300">
+            {active.note}
+          </p>
+        </div>
+
+        <div className="absolute right-8 top-28 z-40 hidden rounded-[28px] border border-white/10 bg-black/25 p-6 text-right backdrop-blur-md md:block">
+          <div className="text-xs uppercase tracking-[0.24em] text-slate-400">state</div>
+          <div className="mt-1 text-5xl font-black text-white">{active.label}</div>
+          <div className="mt-2 text-lg text-cyan-200">{active.steps.toLocaleString()} steps</div>
+        </div>
+
+        <div className="absolute inset-0 z-10">
+          <div className="absolute bottom-[16%] left-[8%] z-[16]">
+            <AvatarBase avatar={avatar} size="hero" />
+          </div>
+          <OrganicGrowthFront intensity={visualIntensity} />
+          <MonitorDesk active={active} showButtons={false} />
+          <FloatingApps apps={active.apps} notifications={active.notifications} />
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-black/45 px-8 py-6 backdrop-blur-xl">
+          <div className="mx-auto grid max-w-6xl gap-3 md:grid-cols-5">
+            <MetricCard icon={Footprints} label="steps" value={active.steps.toLocaleString()} />
+            <MetricCard icon={Smartphone} label="screen" value={`${active.screen}h`} />
+            <MetricCard icon={CalendarDays} label="events" value={active.events} />
+            <MetricCard icon={Mail} label="alerts" value={active.notifications ?? active.apps.length * 12} />
+            <MetricCard icon={Zap} label="pressure" value={active.pressure} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [activeIndex, setActiveIndex] = useState(5);
   const [mode, setMode] = useState("scene");
   const [autoplay, setAutoplay] = useState(false);
   const [xrayOpen, setXrayOpen] = useState(false);
   const [gameOpen, setGameOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [gameMisses, setGameMisses] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [visitorInput, setVisitorInput] = useState(initialVisitorInput);
+  const portraitRef = useRef(null);
 
   const [avatar, setAvatar] = useState({
     tone: "original",
@@ -1177,28 +1399,55 @@ export default function App() {
     accessory: "none",
   });
 
-  const active = days[activeIndex];
+  const visitorDay = useMemo(() => buildVisitorDay(visitorInput), [visitorInput]);
+  const dayList = useMemo(() => [...days, visitorDay], [visitorDay]);
+  const active = dayList[activeIndex] || dayList[dayList.length - 1];
   const stillness = clamp(1 - active.steps / 5000, 0, 1);
   const visualIntensity = clamp((stillness + active.pressure / 100) / 2, 0, 1);
 
   useEffect(() => {
-    if (!autoplay) return;
+    if (!autoplay && !galleryOpen) return;
 
     const timer = setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % days.length);
-    }, 4200);
+      setActiveIndex((prev) => (prev + 1) % dayList.length);
+    }, galleryOpen ? 5600 : 4200);
 
     return () => clearInterval(timer);
-  }, [autoplay]);
+  }, [autoplay, dayList.length, galleryOpen]);
+
+  async function handleExportPortrait() {
+    if (!portraitRef.current) return;
+
+    setExporting(true);
+    try {
+      const dataUrl = await toPng(portraitRef.current, {
+        backgroundColor: "#03040a",
+        cacheBust: true,
+        pixelRatio: 2,
+      });
+      const link = document.createElement("a");
+      link.download = `digital-self-${active.label.toLowerCase().replace(/\s+/g, "-")}.png`;
+      link.href = dataUrl;
+      link.click();
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function openGame() {
+    setGameMisses(0);
+    setMode("game");
+    setGameOpen(true);
+  }
 
   return (
     <main className="min-h-screen bg-[#03040a] px-4 py-6 text-slate-100 md:px-8 md:py-10">
       <div className="mx-auto max-w-[1680px]">
-        <DaySelector activeIndex={activeIndex} setActiveIndex={setActiveIndex} />
+        <DaySelector dayList={dayList} activeIndex={activeIndex} setActiveIndex={setActiveIndex} />
 
-        <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
           <div>
-            <div className="relative min-h-[860px] overflow-hidden rounded-[36px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(59,130,246,0.2),transparent_30%),radial-gradient(circle_at_78%_18%,rgba(236,72,153,0.15),transparent_33%),linear-gradient(180deg,#080b14,#111827_55%,#05070b)] p-6 shadow-[0_42px_110px_rgba(0,0,0,0.58)]">
+            <div ref={portraitRef} className="relative min-h-[860px] overflow-hidden rounded-[36px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(59,130,246,0.2),transparent_30%),radial-gradient(circle_at_78%_18%,rgba(236,72,153,0.15),transparent_33%),linear-gradient(180deg,#080b14,#111827_55%,#05070b)] p-6 shadow-[0_42px_110px_rgba(0,0,0,0.58)]">
               <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.028)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.028)_1px,transparent_1px)] bg-[size:42px_42px] opacity-35" />
               <div className="absolute -left-24 top-24 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
               <div className="absolute -right-24 bottom-20 h-80 w-80 rounded-full bg-fuchsia-500/10 blur-3xl" />
@@ -1253,17 +1502,14 @@ export default function App() {
 
                 <MonitorDesk
                   active={active}
-                  onOpenGame={() => {
-                    setMode("game");
-                    setGameOpen(true);
-                  }}
+                  onOpenGame={openGame}
                   onOpenXray={() => {
                     setMode("xray");
                     setXrayOpen(true);
                   }}
                 />
 
-                <FloatingApps apps={active.apps} />
+                <FloatingApps apps={active.apps} notifications={active.notifications} />
               </div>
 
               <div className="relative z-[30] mt-4 rounded-[28px] border border-white/10 bg-black/35 p-6 backdrop-blur-xl">
@@ -1299,6 +1545,11 @@ export default function App() {
                       value={active.events}
                     />
                     <MetricCard
+                      icon={Mail}
+                      label="alerts"
+                      value={active.notifications ?? active.apps.length * 12}
+                    />
+                    <MetricCard
                       icon={Zap}
                       label="pressure"
                       value={active.pressure}
@@ -1314,16 +1565,20 @@ export default function App() {
             setMode={setMode}
             autoplay={autoplay}
             setAutoplay={setAutoplay}
-            onOpenGame={() => {
-              setMode("game");
-              setGameOpen(true);
-            }}
+            onOpenGame={openGame}
             onOpenXray={() => {
               setMode("xray");
               setXrayOpen(true);
             }}
+            onOpenGallery={() => setGalleryOpen(true)}
+            onExportPortrait={handleExportPortrait}
+            exporting={exporting}
             avatar={avatar}
             setAvatar={setAvatar}
+            visitorInput={visitorInput}
+            setVisitorInput={setVisitorInput}
+            visitorDay={visitorDay}
+            onApplyVisitor={() => setActiveIndex(dayList.length - 1)}
           />
         </div>
       </div>
@@ -1338,15 +1593,26 @@ export default function App() {
         avatar={avatar}
       />
 
-      <NotificationGameModal
-        open={gameOpen}
-        onClose={() => {
-          setGameOpen(false);
-          if (mode === "game") setMode("scene");
-        }}
-        onMissesChange={setGameMisses}
+      <GalleryModeOverlay
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        active={active}
         avatar={avatar}
+        visualIntensity={visualIntensity}
       />
+
+      {gameOpen && (
+        <NotificationGameModal
+          open={gameOpen}
+          onClose={() => {
+            setGameOpen(false);
+            setGameMisses(0);
+            if (mode === "game") setMode("scene");
+          }}
+          onMissesChange={setGameMisses}
+          avatar={avatar}
+        />
+      )}
     </main>
   );
 }

@@ -30,7 +30,10 @@ The digital self does the walking.
 - Interactive app notification scene
 - Screen time, step count, calendar load, and pressure indicators
 - Avatar customization with outfits, hairstyles, accessories, and visual tones
+- Visitor Data mode for turning a viewer's own steps, screen time, calendar load, and notifications into a custom "YOU" state
 - X-Ray mode for reading the hidden data layer
+- Gallery Mode for full-screen exhibition or projection display
+- PNG export for saving the current data portrait
 - Notification panic game
 - Collapse-and-rescue sequence with ambulance animation
 - Physical 3D-printed model designed to sit beside the online interface
@@ -45,6 +48,10 @@ Busier calendars make the monitor feel more crowded.
 
 The avatar lab lets users customize the digital body, similar to a simplified Memoji or Snapchat-style identity system. This turns the body into something personal and editable, while still keeping it physically still in the scene.
 
+The Visitor Data panel lets viewers enter their own daily numbers. The project turns those values into a pressure score, a custom "YOU" day, a notification field, and a generated data portrait that can be exported as a PNG.
+
+Gallery Mode removes the editing surface and turns the piece into a full-screen installation view for projection or presentation.
+
 The notification game asks users to click the correct app before time runs out. If they miss three times, the figure’s eyes turn red, the body collapses, and an ambulance rushes in. The game is intentionally exaggerated, but it reflects a real feeling of digital overload.
 
 ## Technologies Used
@@ -53,6 +60,7 @@ The notification game asks users to click the correct app before time runs out. 
 - Vite
 - Tailwind CSS
 - Framer Motion
+- html-to-image
 - Lucide React
 - 3D printing
 - Vercel deployment
