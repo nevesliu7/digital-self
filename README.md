@@ -3,6 +3,7 @@
 An interactive digital installation about the strange gap between being digitally busy and physically still.
 
 Live project: https://digital-self-five.vercel.app/
+Project Introduction Poster: https://drive.google.com/file/d/1kwq6Zcl_JCfnrYd9EgV09oxNP2B3unk4/view?usp=sharing
 
 ## Project Overview
 
